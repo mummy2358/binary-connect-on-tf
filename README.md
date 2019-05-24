@@ -19,7 +19,7 @@ Seems necessary to use activation functions which have negative values, otherwis
 Can easily reach 87-90% test accuracy with only -1 and 1 weigths.
 
 
-**citation**: 
+## citation: 
 paper: Courbariaux, M., Bengio, Y., & David, J. P. (2015). Binaryconnect: Training deep neural networks with binary weights during propagations. In Advances in neural information processing systems (pp. 3123-3131).
 
 author's original implementation based on Lasagne:  https://github.com/MatthieuCourbariaux/BinaryConnect
