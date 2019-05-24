@@ -1,94 +1,8 @@
-#######################
-# binary connect implementation on tensorflow
-# by: mym
-# time :
-# environments:
-# python3, tensorflow 1.12.0
-# dirty code version
-#######################
-
-
 import tensorflow as tf
 import numpy as np
 import re
-
-
-# "_bi" means with binarized kernel
-def binarize_zero(inputs,name='bi0'):
-	# binarize given variables by sign; >=0 and <0
-	logical=tf.cast(tf.greater(-inputs,0),tf.float32)
-	return tf.add(1-logical,-logical,name=name)
-
-def binarize_stocastic(inputs,name='bi0'):
-	# binarize given variables by hard-sigmoid clip((1+x)/2,0,1) in stacastic way
-	randp=tf.random.uniform(inputs.get_shape(),0,1)
-	p=tf.clip_by_value((inputs+1)/2,0,1)
-	logical=tf.cast(tf.greater(randp,p),tf.float32)
-	return tf.add(-logical,1-logical,name=name)
-	
-	
-def fc_layer_bi(inputs,bi_function=binarize_zero,units=100,W_init=None,stddev=1e-3,use_bias=True,bias_init=None,activation=None,name="fc0"):
-	# save the first rank and flatten all the rest
-	# be sure that inputs have at least rank of 2
-	rest=1
-	for m in inputs.get_shape()[1:]:
-		rest=rest*m.value
-	flat=tf.reshape(inputs,shape=[-1,rest])
-	with tf.variable_scope(name,reuse=tf.AUTO_REUSE):
-		if W_init:
-			W=tf.get_variable(initializer=W_init,dtype=tf.float32,name="W")
-		else:
-			W=tf.get_variable(initializer=tf.random.truncated_normal(shape=[rest,units],stddev=stddev),dtype=tf.float32,name="W")
-		if use_bias:
-			if bias_init:
-				b=tf.get_variable(initializer=bias_init,dtype=tf.float32,name="b")
-			else:
-				b=tf.get_variable(initializer=tf.random.truncated_normal(shape=[units],stddev=stddev),dtype=tf.float32,name="b")
-		
-		# added binarization layer for W
-		W_bi=bi_function(W,name="W_bi")
-		res=tf.matmul(flat,W_bi)
-		res=tf.nn.bias_add(res,b)
-		if activation:
-			res=activation(res)
-		return res
-
-def conv2d_layer_bi(inputs,bi_function=binarize_zero,kernel_size=3,filters=64,strides=[2,2],kernel_init=None,stddev=1e-3,use_bias=True,bias_init=None,activation=None,name="conv0"):
-	# kernel_size and filters are both integers
-	# inputs is a tensor of [batch,height,width,channels]
-	with tf.variable_scope(name,reuse=tf.AUTO_REUSE):
-		# auto_reuse also reuse scope
-		if not kernel_init:
-			kernels=tf.get_variable(initializer=tf.random.truncated_normal(shape=[kernel_size,kernel_size,inputs.get_shape()[-1].value,filters],stddev=stddev),dtype=tf.float32,name="kernels")
-		else:
-			kernels=tf.get_variable(initializer=kernel_init,dtype=tf.float32,name="kernels")
-		if use_bias:
-			if not bias_init:
-				bias=tf.get_variable(initializer=tf.random.truncated_normal(shape=[filters],stddev=stddev),dtype=tf.float32,name="bias")
-			else:
-				bias=tf.get_variable(initializer=bias_init,dtype=tf.float32,name="bias")
-		# added binarization
-		kernels_bi=bi_function(kernels,name="kernels_bi")
-		res=tf.nn.convolution(inputs,kernels_bi,padding="SAME",strides=strides,name=name)
-		res=tf.nn.bias_add(res,bias,data_format="NHWC")
-		if activation:
-			res=activation(res)
-		return res
-
-def shuffle_together(arr1,arr2):
-	c=list(zip(arr1,arr2))
-	np.random.shuffle(c)
-	arr_1,arr_2=zip(*c)
-	return arr_1,arr_2
-
-def acc(label,pred):
-	# input predictions and labels and calculate accuracy
-	correct=0
-	for i in range(len(label)):
-		if np.argmax(label[i])==np.argmax(pred[i]):
-			correct+=1
-	res=correct/len(label)
-	return res
+import basic_layers
+import utils
 
 # [dataset]
 mnist = tf.keras.datasets.mnist
@@ -117,13 +31,13 @@ with tf.variable_scope("mlp0") as scope:
 	
 	#conv3=conv2d_layer_bi(bn2,bi_function=binarize_zero,kernel_size=3,filters=64,strides=[2,2],activation=None,name="conv3")
 	#bn3=tf.layers.batch_normalization(conv3,axis=-1,center=False,scale=False,name="bn3")
-	h1=fc_layer_bi(x,bi_function=binarize_stocastic,units=2048,activation=tf.nn.relu,name="h1")
+	h1=basic_layers.fc_layer_bi(x,bi_function=basic_layers.binarize_zero,units=2048,activation=tf.nn.leaky_relu,name="h1")
 	
-	h2=fc_layer_bi(h1,bi_function=binarize_stocastic,units=2048,activation=tf.nn.relu,name="h2")
+	h2=basic_layers.fc_layer_bi(h1,bi_function=basic_layers.binarize_zero,units=2048,activation=tf.nn.leaky_relu,name="h2")
 	
-	h3=fc_layer_bi(h2,bi_function=binarize_stocastic,units=2048,activation=tf.nn.relu,name="h3")
+	h3=basic_layers.fc_layer_bi(h2,bi_function=basic_layers.binarize_zero,units=2048,activation=tf.nn.leaky_relu,name="h3")
 	
-	fc2=fc_layer_bi(h3,bi_function=binarize_zero,units=10,name="fc2")
+	fc2=basic_layers.fc_layer_bi(h3,bi_function=basic_layers.binarize_zero,units=10,name="fc2")
 	#loss=tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits_v2(labels=y,logits=fc2))
 	loss=tf.losses.hinge_loss(labels=y,logits=fc2)
 
@@ -170,9 +84,11 @@ init=tf.global_variables_initializer()
 max_epoch=5000
 batch_size=200
 save_iter=10
-test_iter=1
+test_iter=5
 # training
 sess.run(init)
+
+test_acc_save=[]
 
 restore_epoch=0
 if restore_epoch>0:
@@ -180,7 +96,7 @@ if restore_epoch>0:
 	saver.restore(sess,"epoch_"+str(restore_epoch)+".ckpt")
 
 for e in range(restore_epoch,max_epoch):
-	shuffle_together(x_train,y_hinge_train)
+	utils.shuffle_together(x_train,y_hinge_train)
 	epoch_loss=0
 	for b in range(np.shape(x_train)[0]//batch_size+1):
 		if b!=np.shape(x_train)[0]//batch_size:
@@ -207,5 +123,7 @@ for e in range(restore_epoch,max_epoch):
 	if not (e+1)%test_iter:
 		print("testing model...")
 		pred=sess.run(fc2,feed_dict={x:x_test,y:y_hinge_test})
-		accuracy=acc(pred=pred,label=y_hinge_test)
-		print("test accuracy: "+str(accuracy))
+		accuracy=utils.acc(pred=pred,label=y_hinge_test)
+		test_acc_save.append(accuracy)
+		print("val accuracy: "+str(accuracy))
+		np.save("./val_acc.npy",np.array(test_acc_save))
