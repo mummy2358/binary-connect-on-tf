@@ -1,4 +1,4 @@
-# A tensorflow implementation from scratch of the "binary connect" model by Matthieu Courbariaux
+# A tensorflow implementation from scratch of the "binary connect" model
 
 ## implemenation details
 tensorflow 1.12.0
